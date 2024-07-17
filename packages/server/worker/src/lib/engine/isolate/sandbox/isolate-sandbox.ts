@@ -1,5 +1,5 @@
 import { exec } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { readFile, access, constants, open as openFile } from 'node:fs/promises'
 import path from 'node:path'
 import process, { arch, cwd } from 'node:process'
 import { fileExists, getEngineTimeout, logger, PiecesSource, SharedSystemProp, system } from '@activepieces/server-shared'
@@ -54,7 +54,7 @@ export class IsolateSandbox {
         operationType: EngineOperationType,
         _operation: EngineOperation,
     ): Promise<ExecuteSandboxResult> {
-        const metaFile = this.getSandboxFilePath('meta.txt')
+        const metaFile = await this.getSandboxFilePath('meta.txt')
 
         let timeInSeconds
         let output
@@ -103,8 +103,8 @@ export class IsolateSandbox {
             timeInSeconds,
             verdict,
             output,
-            standardOutput: await readFile(this.getSandboxFilePath('_standardOutput.txt'), { encoding: 'utf-8' }),
-            standardError: await readFile(this.getSandboxFilePath('_standardError.txt'), { encoding: 'utf-8' }),
+            standardOutput: await readFile(await this.getSandboxFilePath('_standardOutput.txt'), { encoding: 'utf-8' }),
+            standardError: await readFile(await this.getSandboxFilePath('_standardError.txt'), { encoding: 'utf-8' }),
         }
 
         logger.trace(result, '[IsolateSandbox#runCommandLine] result')
@@ -116,8 +116,14 @@ export class IsolateSandbox {
         return `/var/local/lib/isolate/${this.boxId}/box`
     }
 
-    protected getSandboxFilePath(subFile: string): string {
-        return `${this.getSandboxFolderPath()}/${subFile}`
+    protected async getSandboxFilePath(subFile: string): Promise<string> {
+        const filename = `${this.getSandboxFolderPath()}/${subFile}`
+        try {
+            await access(filename, constants.F_OK)
+        } catch {
+            await openFile(filename, "w")
+        }
+        return filename
     }
 
 
@@ -134,7 +140,7 @@ export class IsolateSandbox {
     }
 
     protected async parseMetaFile(): Promise<Record<string, unknown>> {
-        const metaFile = this.getSandboxFilePath('meta.txt')
+        const metaFile = await this.getSandboxFilePath('meta.txt')
         const lines = (await readFile(metaFile, { encoding: 'utf-8' })).split('\n')
         const result: Record<string, unknown> = {}
 
@@ -147,7 +153,7 @@ export class IsolateSandbox {
     }
 
     protected async parseFunctionOutput(): Promise<EngineResponse<unknown>> {
-        const outputFile = this.getSandboxFilePath('output.json')
+        const outputFile = await this.getSandboxFilePath('output.json')
 
         if (!(await fileExists(outputFile))) {
             throw new Error(`Output file not found in ${outputFile}`)
